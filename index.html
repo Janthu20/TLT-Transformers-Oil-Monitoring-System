@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Tank System</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root { 
+            --bg-deep: #0b0e14;
+            --card-bg: #161b22;
+            --navy-accent: #1f2937;
+            --neon-blue: #0ea5e9;
+            --neon-green: #10b981;
+            --text-main: #f9fafb;
+            --text-dim: #9ca3af;
+            --danger: #ef4444; 
+        }
+
+        body { font-family: 'Inter', sans-serif; background: var(--bg-deep); margin: 0; padding: 0; color: var(--text-main); }
+        .hidden { display: none !important; }
+        .navbar { background: #000000; color: var(--text-main); padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; position: sticky; top: 0; z-index: 1000; }
+        .nav-title { margin:0; cursor:pointer; font-weight: bold; letter-spacing: 0.5px; }
+        .nav-title:hover { color: var(--neon-blue); }
+        .container { padding: 30px; max-width: 1400px; margin: auto; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .summary-card { background: var(--card-bg); padding: 25px; border-radius: 12px; border: 1px solid #30363d; position: relative; overflow: hidden; }
+        .summary-card::before { content: ""; position: absolute; left: 0; top: 0; height: 100%; width: 4px; background: var(--neon-green); }
+        .val-large { font-size: 36px; font-weight: 800; color: var(--text-main); margin: 10px 0; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; }
+        .tank-card { background: var(--card-bg); padding: 25px; border-radius: 16px; border: 1px solid #30363d; transition: 0.3s ease; }
+        .level-container { width: 100%; height: 10px; background: #0d1117; border-radius: 5px; margin: 20px 0; overflow: hidden; }
+        .level-bar { height: 100%; background: linear-gradient(90deg, var(--neon-green) 0%, var(--neon-blue) 100%); transition: width 1s ease-in-out; }
+        .chart-container { background: var(--card-bg); padding: 30px; border-radius: 16px; margin-top: 40px; border: 1px solid #30363d; }
+        .full-center { display: flex; justify-content: center; align-items: center; height: 100vh; background: #000; }
+        .login-card { background: var(--card-bg); padding: 50px; border-radius: 20px; border: 1px solid #30363d; width: 100%; max-width: 400px; text-align: center; }
+        input { width: 100%; padding: 14px; margin: 12px 0; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; color: #fff; font-size: 16px; box-sizing: border-box; }
+        button { padding: 12px 24px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-primary { background: var(--neon-blue); color: #fff; }
+        .btn-logout { background: var(--danger); color: #fff; }
+        .tf-select { background: #0d1117; color: var(--text-main); border: 1px solid #30363d; border-radius: 4px; padding: 6px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="login-section" class="full-center">
+        <div class="login-card">
+            <h2 style="color: var(--neon-blue);">TANK LOGIN</h2>
+            <p style="color: var(--text-dim); margin-bottom: 30px;">Authorized Access Only</p>
+            <input type="email" id="email" placeholder="Email Address">
+            <input type="password" id="password" placeholder="Password">
+            <button onclick="handleLogin()" class="btn-primary" style="width:100%; margin-top:15px;">Access System</button>
+            <p id="login-error" style="color:var(--danger); font-size:13px; margin-top:15px; display:none;"></p>
+        </div>
+    </div>
+
+    <div id="main-app" class="hidden">
+        <nav class="navbar">
+            <h3 class="nav-title" onclick="showDashboard()">LIVE MONITORING PANEL</h3>
+            <div>
+                <button onclick="showTankSelection()" style="background:var(--navy-accent); color:white; border:1px solid #30363d; padding:10px; border-radius:8px; margin-right:10px;">Tank Calibration</button>
+                <button onclick="handleLogout()" class="btn-logout">Logout</button>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div id="dashboard-view">
+                <div class="summary-grid">
+                    <div class="summary-card"><h4>System Total Volume</h4><div class="val-large"><span id="total-vol">0</span> L</div></div>
+                    <div class="summary-card" style="border-left-color: var(--neon-blue);"><h4>Average System Level</h4><div class="val-large"><span id="total-perc">0.0</span> %</div></div>
+                </div>
+
+                <div id="tanks-grid" class="grid"></div>
+
+                <div class="chart-container">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h4 style="margin:0; color:var(--text-dim);">REAL-TIME VOLUME METRICS (LITERS)</h4>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <small style="color:var(--text-dim)">Timeframe:</small>
+                            <select id="tf-select" class="tf-select" onchange="updateChartDisplay()">
+                                <option value="1">1 Min</option>
+                                <option value="5">5 Min</option>
+                                <option value="10">10 Min</option>
+                                <option value="30">30 Min</option>
+                                <option value="60" selected>1 Hour</option>
+                                <option value="1440">1 Day</option>
+                            </select>
+                        </div>
+                    </div>
+                    <canvas id="volumeChart" height="100"></canvas>
+                </div>
+            </div>
+
+            <div id="selection-section" class="hidden">
+                <div class="login-card" style="max-width: 800px; margin:auto">
+                    <h3 style="color:var(--neon-blue)">SELECT TANK CONFIGURATION</h3>
+                    <div class="grid" id="selection-grid"></div>
+                    <button onclick="showDashboard()" style="background:var(--navy-accent); color:white; width:100%; margin-top:20px; padding:12px; border-radius:8px;">Back to Dashboard</button>
+                </div>
+            </div>
+
+            <div id="wizard-section" class="hidden">
+                <div class="login-card" style="max-width: 550px; margin:auto">
+                    <h3 id="wizard-title" style="color:var(--neon-blue)">SETUP WIZARD</h3>
+                    <div id="step-1" class="wizard-step">
+                        <input type="number" id="wiz-dia" placeholder="Tank Diameter (mm)">
+                        <input type="number" id="wiz-maxh" placeholder="Full Tank Height (mm)">
+                    </div>
+                    <div id="step-points" class="wizard-step hidden">
+                        <p id="point-instruction" style="color:var(--neon-green)"></p>
+                        <div style="font-size:48px; font-weight:bold; color:var(--neon-green); margin:20px 0;" id="live-raw">0</div>
+                        <input type="number" id="wiz-h" placeholder="Current Height (mm)">
+                    </div>
+                    <div style="display:flex; justify-content: space-between; margin-top:30px;">
+                        <button onclick="showDashboard()" style="background:#333; color:#fff; border-radius:8px;">Cancel</button>
+                        <button id="next-btn" onclick="nextStep()" class="btn-primary" style="border-radius:8px;">Next Phase</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyANwLrsXHB13XqH6xp4xv4vDyncxc5KIXM",
+        authDomain: "esp32-tank-level-monitoring.firebaseapp.com",
+        databaseURL: "https://esp32-tank-level-monitoring-default-rtdb.firebaseio.com",
+        projectId: "esp32-tank-level-monitoring",
+        storageBucket: "esp32-tank-level-monitoring.firebasestorage.app",
+        messagingSenderId: "378866707020",
+        appId: "1:378866707020:web:7e9f74f40707d50c5c62e9"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const auth = firebase.auth();
+    
+    let chart;
+    let chartDataStore = []; 
+
+    // --- VIEW LOGIC ---
+    function showDashboard() {
+        document.getElementById('dashboard-view').classList.remove('hidden');
+        document.getElementById('selection-section').classList.add('hidden');
+        document.getElementById('wizard-section').classList.add('hidden');
+    }
+
+    function showTankSelection() {
+        document.getElementById('dashboard-view').classList.add('hidden');
+        document.getElementById('wizard-section').classList.add('hidden');
+        document.getElementById('selection-section').classList.remove('hidden');
+        loadSelectionGrid();
+    }
+
+    // --- AUTH LOGIC ---
+    function handleLogin() {
+        auth.signInWithEmailAndPassword(document.getElementById('email').value, document.getElementById('password').value).catch(err => {
+            document.getElementById('login-error').innerText = err.message;
+            document.getElementById('login-error').style.display = 'block';
+        });
+    }
+    function handleLogout() { auth.signOut(); }
+
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+            initChart();
+            startDataListener();
+        } else {
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('main-app').classList.add('hidden');
+        }
+    });
+
+    // --- DATA HANDLING ---
+    function startDataListener() {
+        db.ref('Tanks').on('value', snap => {
+            const data = snap.val() || {};
+            const grid = document.getElementById('tanks-grid');
+            grid.innerHTML = "";
+            let totalV = 0, totalMaxV = 0, tankVols = [0, 0, 0, 0];
+
+            for(let i=1; i<=4; i++) {
+                const tank = data[`Tank${i}`] || { analog_raw: 0 };
+                const config = tank.config || {};
+                let vol = 0, perc = 0;
+
+                if(config.isConfigured) {
+                    let h = calculateHeight(tank.analog_raw, config);
+                    let rawVol = (Math.PI * Math.pow(config.diameter/2, 2) * h) / 1000000;
+                    vol = rawVol < 5 ? 0 : Math.round(rawVol / 5) * 5; 
+                    perc = (h / config.max_height) * 100;
+                    totalV += vol;
+                    totalMaxV += (Math.PI * Math.pow(config.diameter/2, 2) * config.max_height) / 1000000;
+                    tankVols[i-1] = vol;
+                }
+
+                grid.innerHTML += `
+                    <div class="tank-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:bold;">TANK 0${i}</span>
+                            <small style="color:var(--neon-green)">SIG: ${tank.analog_raw}</small>
+                        </div>
+                        <div style="font-size:38px; font-weight:800; margin:15px 0;">${vol} L</div>
+                        <div class="level-container"><div class="level-bar" style="width:${perc}%"></div></div>
+                        <small style="color:var(--text-dim)">LEVEL: ${perc.toFixed(1)}% | T${i}</small>
+                    </div>`;
+            }
+            document.getElementById('total-vol').innerText = totalV;
+            document.getElementById('total-perc').innerText = totalMaxV > 0 ? ((totalV/totalMaxV)*100).toFixed(1) : "0.0";
+            
+            processNewData(totalV, tankVols);
+        });
+    }
+
+    function calculateHeight(raw, c) {
+        let h = (raw <= c.p2_raw) ? (c.p1_h + (raw - c.p1_raw) * (c.p2_h - c.p1_h) / (c.p2_raw - c.p1_raw || 1)) : (c.p2_h + (raw - c.p2_raw) * (c.p3_h - c.p2_h) / (c.p3_raw - c.p2_raw || 1));
+        return Math.max(0, Math.min(h, c.max_height));
+    }
+
+    // --- CHART LOGIC ---
+    function initChart() {
+        const ctx = document.getElementById('volumeChart').getContext('2d');
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'System Total', data: [], borderColor: '#0ea5e9', backgroundColor: 'rgba(14, 165, 233, 0.1)', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2.5 },
+                { label: 'Tank 01', data: [], borderColor: '#10b981', tension: 0.4, pointRadius: 0, borderWidth: 1.5 },
+                { label: 'Tank 02', data: [], borderColor: '#f59e0b', tension: 0.4, pointRadius: 0, borderWidth: 1.5 },
+                { label: 'Tank 03', data: [], borderColor: '#a78bfa', tension: 0.4, pointRadius: 0, borderWidth: 1.5 },
+                { label: 'Tank 04', data: [], borderColor: '#fb7185', tension: 0.4, pointRadius: 0, borderWidth: 1.5 }
+            ]},
+            options: { 
+                responsive: true, 
+                animation: false, 
+                interaction: { intersect: false, mode: 'index' },
+                scales: { 
+                    y: { beginAtZero: true, grid: { color: '#30363d' }, ticks: { color: '#9ca3af' } },
+                    x: { 
+                        grid: { display: false }, 
+                        ticks: { 
+                            color: '#9ca3af',
+                            autoSkip: true,
+                            maxTicksLimit: 6, // කාලය පෙන්වන ලේබල් ගණන සීමා කිරීම (ලේබල් තදබදය වැළැක්වීමට)
+                            maxRotation: 0
+                        } 
+                    }
+                },
+                plugins: { legend: { labels: { color: '#f9fafb', font: { size: 10 } } } }
+            }
+        });
+    }
+
+    function processNewData(total, tanks) {
+        if(!chart) return;
+        const now = new Date();
+        const entry = {
+            timestamp: now,
+            label: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            values: [total, ...tanks]
+        };
+        chartDataStore.push(entry);
+        updateChartDisplay();
+    }
+
+    function updateChartDisplay() {
+        if(!chart) return;
+        const timeframeMinutes = parseInt(document.getElementById('tf-select').value);
+        const cutoffTime = new Date(new Date().getTime() - timeframeMinutes * 60000);
+        
+        // Filter: පැරණි දත්ත ඉවත් කර අදාළ timeframe එකේ දත්ත පමණක් පෙරා ගැනීම
+        const filteredData = chartDataStore.filter(d => d.timestamp >= cutoffTime);
+
+        chart.data.labels = filteredData.map(d => d.label);
+        chart.data.datasets.forEach((dataset, index) => {
+            dataset.data = filteredData.map(d => d.values[index]);
+        });
+        
+        chart.update('none');
+
+        // Cleanup: දිනකට වඩා පැරණි දත්ත Master store එකෙන් ඉවත් කිරීම
+        if(chartDataStore.length > 5000) {
+            chartDataStore = chartDataStore.filter(d => d.timestamp >= new Date(new Date().getTime() - 1440 * 60000));
+        }
+    }
+
+    // --- SETUP WIZARD ---
+    function loadSelectionGrid() {
+        db.ref('Tanks').once('value', snap => {
+            const data = snap.val() || {};
+            const grid = document.getElementById('selection-grid');
+            grid.innerHTML = "";
+            for(let i=1; i<=4; i++) {
+                const isSet = data[`Tank${i}`]?.config?.isConfigured;
+                grid.innerHTML += `<div class="tank-card" onclick="startWizard(${i})" style="cursor:pointer; text-align:center;">
+                    <p>TANK 0${i}</p>
+                    <button class="btn-primary" style="width:100%; border-radius:8px;">${isSet?'EDIT':'SETUP'}</button>
+                </div>`;
+            }
+        });
+    }
+
+    let currentTankId = null, currentStep = 1, wizardData = {};
+    function startWizard(id) {
+        currentTankId = id; currentStep = 1; wizardData = { p1:{}, p2:{}, p3:{} };
+        document.getElementById('selection-section').classList.add('hidden');
+        document.getElementById('wizard-section').classList.remove('hidden');
+        updateWizardUI();
+    }
+
+    function updateWizardUI() {
+        document.getElementById('step-1').classList.add('hidden');
+        document.getElementById('step-points').classList.add('hidden');
+        const nextBtn = document.getElementById('next-btn');
+        nextBtn.innerText = currentStep === 4 ? "COMPLETE" : "PROCEED";
+        if(currentStep === 1) {
+            document.getElementById('step-1').classList.remove('hidden');
+            document.getElementById('wizard-title').innerText = `TANK ${currentTankId}: SETUP`;
+        } else {
+            document.getElementById('step-points').classList.remove('hidden');
+            document.getElementById('point-instruction').innerText = `POINT ${currentStep-1} CALIBRATION`;
+            db.ref(`Tanks/Tank${currentTankId}/analog_raw`).on('value', snap => {
+                document.getElementById('live-raw').innerText = snap.val() || 0;
+            });
+        }
+    }
+
+    function nextStep() {
+        if(currentStep === 1) {
+            wizardData.dia = parseFloat(document.getElementById('wiz-dia').value);
+            wizardData.maxH = parseFloat(document.getElementById('wiz-maxh').value);
+            if(!wizardData.dia || !wizardData.maxH) return alert("Fill parameters!");
+            currentStep++; updateWizardUI();
+        } else {
+            const h = parseFloat(document.getElementById('wiz-h').value);
+            if(isNaN(h) || h > wizardData.maxH) return alert("Invalid height!");
+            wizardData[`p${currentStep-1}`] = { raw: parseInt(document.getElementById('live-raw').innerText), h: h };
+            if(currentStep === 4) {
+                const config = { diameter: wizardData.dia, max_height: wizardData.maxH, p1_raw: wizardData.p1.raw, p1_h: wizardData.p1.h, p2_raw: wizardData.p2.raw, p2_h: wizardData.p2.h, p3_raw: wizardData.p3.raw, p3_h: wizardData.p3.h, isConfigured: true };
+                db.ref(`Tanks/Tank${currentTankId}/config`).set(config).then(() => { alert("Done!"); showDashboard(); });
+            } else { currentStep++; document.getElementById('wiz-h').value = ""; updateWizardUI(); }
+        }
+    }
+</script>
+</body>
+</html>
